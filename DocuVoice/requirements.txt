@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+python-multipart
+email-validator
+pypdf            # PDF text extraction (TXT and DOCX work without it)

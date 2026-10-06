@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DocuVoice</title>
+<style>
+:root{--bg:#f4f6fb;--ink:#1b2236;--mute:#667090;--brand:#4338ca;--soft:#e8e8fb;--line:#d8dcea;--hl:#fde68a;--bad:#b91c1c}
+*{box-sizing:border-box}body{margin:0;font:15px/1.6 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;gap:6px;align-items:center;padding:12px 20px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}header b{font-size:20px;color:var(--brand);margin-right:auto}
+main{max-width:900px;margin:0 auto;padding:20px}.card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:14px}
+button{background:var(--brand);color:#fff;border:0;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer}button.alt{background:var(--soft);color:var(--brand)}button.del{background:#fde8e8;color:var(--bad)}button:disabled{opacity:.5}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible,.sn:focus-visible{outline:3px solid #f59e0b;outline-offset:2px}
+input,textarea,select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:6px;width:100%;margin:4px 0 10px}select,input[type=range]{width:auto;margin:0 8px 6px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.stat b{display:block;font-size:24px}
+.tag{display:inline-block;background:var(--soft);color:var(--brand);padding:2px 10px;border-radius:99px;margin:2px;font-size:13px}.empty{color:var(--mute);text-align:center;padding:24px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px}.tabs button{background:#fff;color:var(--ink);border:1px solid var(--line)}.tabs button.on{background:var(--brand);color:#fff}
+.sn{cursor:pointer;padding:1px 2px;border-radius:3px}.sn:hover{background:var(--soft)}.sn.now{background:var(--hl)}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+.bar{position:sticky;top:0;z-index:2}#toast{position:fixed;bottom:16px;right:16px;display:grid;gap:8px}#toast div{background:#1b2236;color:#fff;padding:10px 14px;border-radius:6px}#toast .e{background:var(--bad)}.auth{max-width:380px;margin:8vh auto}
+</style></head><body><div id="toast" role="status" aria-live="polite"></div><div id="root"></div>
+<script>
+const $=s=>document.querySelector(s),root=$('#root');let S={token:localStorage.dv_token,name:localStorage.dv_name,page:'docs',cur:null,tab:'Summary'};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m,e){const d=document.createElement('div');d.textContent=m;if(e)d.className='e';$('#toast').append(d);setTimeout(()=>d.remove(),4500)}
+async function api(p,o={}){o.headers={...(o.headers||{}),Authorization:'Bearer '+S.token};if(o.json){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.json);delete o.json}
+ const r=await fetch('/api'+p,o);let d={};try{d=await r.json()}catch{}if(r.status==401&&S.token){localStorage.clear();S.token=null;render()}if(!r.ok)throw new Error(typeof d.detail=='string'?d.detail:'Something went wrong. Please try again.');return d}
+function stopSpeech(){window.speechSynthesis&&speechSynthesis.cancel();S.reading=false}
+function dl(n,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/plain'}));a.download=n;a.click()}
+function auth(reg){root.innerHTML=`<form class="card auth" id="f"><h1 style="color:var(--brand)">DocuVoice</h1><p>Upload a document, get the key points, and listen to it.</p>${reg?'<label>Name<input name="name" required></label>':''}<label>Email<input name="email" type="email" required></label><label>Password<input name="password" type="password" minlength="8" required></label><button>${reg?'Create account':'Log in'}</button><p><a href="#" id="sw">${reg?'I already have an account':'Create an account'}</a></p></form>`;
+ $('#sw').onclick=e=>{e.preventDefault();auth(!reg)};$('#f').onsubmit=async e=>{e.preventDefault();const b=Object.fromEntries(new FormData(e.target));try{
+  if(reg){await api('/auth/register',{method:'POST',json:b});toast('Account created. Log in to continue.');return auth(false)}
+  const d=await api('/auth/login',{method:'POST',json:b});localStorage.dv_token=S.token=d.token;localStorage.dv_name=S.name=d.name;render()}catch(x){toast(x.message,1)}}}
+async function render(){stopSpeech();if(!S.token)return auth(false);
+ root.innerHTML=`<header><b>DocuVoice</b><button class="${S.page=='docs'&&!S.cur?'':'alt'}" id="n1">My documents</button><button class="${S.page=='new'?'':'alt'}" id="n2">Add document</button><button class="alt" id="lo">Log out</button></header><main id="m"></main>`;
+ $('#n1').onclick=()=>{S.page='docs';S.cur=null;render()};$('#n2').onclick=()=>{S.page='new';S.cur=null;render()};
+ $('#lo').onclick=async()=>{await api('/auth/logout',{method:'POST'}).catch(()=>{});localStorage.clear();S.token=null;render()};
+ const m=$('#m');S.cur?view(m):S.page=='new'?add(m):list(m)}
+async function list(m){let L;try{L=await api('/documents')}catch{return}
+ m.innerHTML=`<h2>Welcome back, ${esc(S.name)}</h2><div class="card">${L.length?`<table><tr><th>Document</th><th>Type</th><th>Words</th><th></th></tr>${L.map(d=>`<tr><td><a href="#" data-id="${d.id}">${esc(d.title)}</a><br><small>${esc(d.filename)} · ${esc(d.created_at)}</small></td><td>${esc(d.type)}</td><td>${d.words}</td><td><button class="del" data-del="${d.id}">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty">No documents yet. Add a TXT, DOCX or PDF to get started.</div>'}</div>`;
+ m.querySelectorAll('[data-id]').forEach(a=>a.onclick=async e=>{e.preventDefault();S.cur=await api('/documents/'+a.dataset.id);S.tab='Summary';render()});
+ m.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this document?')){await api('/documents/'+b.dataset.del,{method:'DELETE'});toast('Document deleted.');render()}})}
+function add(m){m.innerHTML=`<h2>Add a document</h2><form class="card" id="f"><label>Title (optional)<input name="title"></label><label>File (TXT, MD, DOCX, PDF · max 15 MB)<input type="file" name="file" accept=".txt,.md,.docx,.pdf"></label>
+ <p style="text-align:center;color:var(--mute)">or paste text</p><textarea name="text" rows="8" aria-label="Pasted text"></textarea><button>Analyze document</button><p id="st" aria-live="polite"></p></form>`;
+ $('#f').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);if(!fd.get('file').size)fd.delete('file');$('#st').textContent='Extracting and analyzing…';
+  try{const d=await api('/documents',{method:'POST',body:fd});S.cur=await api('/documents/'+d.id);S.tab='Summary';render()}catch(x){$('#st').textContent='';toast(x.message,1)}}}
+function view(m){const d=S.cur,a=d.analysis,T=['Summary','Key information','Document','Read aloud'],ki=a.key_info;
+ m.innerHTML=`<p><a href="#" id="bk">← All documents</a></p><h2>${esc(d.title)}</h2><div class="grid"><div class="card stat"><b>${esc(a.type)}</b>Detected type</div><div class="card stat"><b>${a.words}</b>Words</div><div class="card stat"><b>${a.read_minutes} min</b>Read · ${a.listen_minutes} min listen</div><div class="card stat"><b>${esc(a.readability.level)}</b>Readability (${a.readability.score})</div></div>
+ <div class="tabs">${T.map(t=>`<button class="${S.tab==t?'on':''}" data-t="${t}">${t}</button>`).join('')}</div><div id="tb"></div>`;
+ $('#bk').onclick=e=>{e.preventDefault();S.cur=null;render()};m.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{stopSpeech();S.tab=b.dataset.t;view(m)});
+ const list=(l,t)=>l.length?l.map(x=>`<span class="tag">${esc(x)}</span>`).join(''):`<span style="color:var(--mute)">None found</span>`;
+ const V={Summary:()=>`<div class="card"><h3>Short</h3><p>${esc(a.summary_short)}</p><h3>Medium</h3><p>${esc(a.summary_medium)}</p><details><summary>Detailed</summary><p>${esc(a.summary_long)}</p></details><button class="alt" id="ex">Download summary</button></div><div class="card"><h3>Keywords</h3>${list(a.keywords)}</div>`,
+ 'Key information':()=>`<div class="card">${[['Dates',ki.dates],['Amounts',ki.amounts],['Names and organizations',ki.names],['Emails',ki.emails],['Phone numbers',ki.phones],['Links',ki.urls]].map(([t,l])=>`<h3>${t}</h3>${list(l)}`).join('')}</div><div class="card"><h3>Outline</h3>${a.outline.length?`<ul>${a.outline.map(h=>`<li>${esc(h)}</li>`).join('')}</ul>`:'<span style="color:var(--mute)">No headings detected.</span>'}</div>`,
+ Document:()=>`<div class="card" style="white-space:pre-wrap">${esc(d.text)}</div>`,
+ 'Read aloud':()=>`<div class="card bar"><label>Read: <select id="src"><option value="full">Full document</option><option value="short">Short summary</option><option value="medium">Medium summary</option></select></label><label>Voice <select id="vc"></select></label><label>Speed <input type="range" id="sp" min=".6" max="1.8" step=".1" value="1"> <span id="spv">1.0×</span></label><br>
+  <button id="pl">▶ Play</button> <button class="alt" id="pa">Pause</button> <button class="alt" id="st">Stop</button><span id="msg" style="margin-left:10px;color:var(--mute)"></span></div><div class="card" id="rd"></div>`};
+ $('#tb').innerHTML=V[S.tab]();if($('#ex'))$('#ex').onclick=()=>dl(d.title+'-summary.txt',`${d.title}\n\nSHORT SUMMARY\n${a.summary_short}\n\nDETAILED SUMMARY\n${a.summary_long}\n\nKEYWORDS\n${a.keywords.join(', ')}`);
+ if(S.tab=='Read aloud')reader(d,a)}
+function reader(d,a){if(!window.speechSynthesis){$('#rd').innerHTML='<p class="empty">Read aloud is not supported in this browser. Try Chrome, Edge or Safari.</p>';return}
+ let items=[],i=0;const src=()=>({full:d.text,short:a.summary_short,medium:a.summary_medium})[$('#src').value];
+ const draw=()=>{items=src().replace(/^#\s*/gm,'').split(/(?<=[.!?])\s+|\n+/).map(s=>s.trim()).filter(Boolean);$('#rd').innerHTML=items.map((s,k)=>`<span class="sn" tabindex="0" data-k="${k}">${esc(s)} </span>`).join('');
+  $('#rd').querySelectorAll('.sn').forEach(e=>{e.onclick=()=>{i=+e.dataset.k;go()};e.onkeydown=ev=>ev.key=='Enter'&&e.click()})};
+ const fill=()=>{const v=speechSynthesis.getVoices();$('#vc').innerHTML=v.map((x,k)=>`<option value="${k}">${esc(x.name)} (${x.lang})</option>`).join('')||'<option>Default</option>'};fill();speechSynthesis.onvoiceschanged=fill;
+ function go(){speechSynthesis.cancel();S.reading=true;const myI=i;if(i>=items.length){S.reading=false;$('#msg').textContent='Finished.';return}
+  document.querySelectorAll('.sn').forEach(e=>e.classList.toggle('now',+e.dataset.k==i));document.querySelector('.sn.now')?.scrollIntoView({block:'center',behavior:'smooth'});
+  const u=new SpeechSynthesisUtterance(items[i]);const v=speechSynthesis.getVoices()[$('#vc').value];if(v){u.voice=v;u.lang=v.lang}u.rate=+$('#sp').value;
+  u.onend=()=>{if(S.reading&&i==myI){i++;go()}};u.onerror=()=>{};speechSynthesis.speak(u);$('#msg').textContent=`Sentence ${i+1} of ${items.length}`}
+ $('#src').onchange=()=>{stopSpeech();i=0;draw()};$('#sp').oninput=e=>{$('#spv').textContent=(+e.target.value).toFixed(1)+'×'};$('#sp').onchange=()=>S.reading&&go();
+ $('#pl').onclick=()=>{if(speechSynthesis.paused){speechSynthesis.resume()}else go()};$('#pa').onclick=()=>speechSynthesis.pause();$('#st').onclick=()=>{stopSpeech();i=0;document.querySelectorAll('.sn').forEach(e=>e.classList.remove('now'));$('#msg').textContent=''};draw()}
+render();
+</script></body></html>
